@@ -1,0 +1,170 @@
+import urllib, urllib2
+import json, webbrowser
+
+base = "http://api.yummly.com/v1/api/"
+id = ""
+key = ""
+ 
+# reads a user input
+def get_input():
+    return raw_input("What do you want to eat?\n--->")
+ 
+ 
+# gets data back from server
+def send_request(input):
+    # uses yummly Search Recipe api
+    d = {}
+    d["_app_id"] = id
+    d["_app_key"] = key    
+    d["q"] = input
+    url = base + "recipes?" + urllib.urlencode(d)
+    try:
+        request = urllib2.urlopen(url).read()
+        return json.loads(request)
+    except urllib2.URLError:
+        print "Bad request!"
+        return None
+
+
+# stores data into a dictionary
+def retrieve_data(data):
+    item_dict = {}
+    for item in data["matches"]:
+        item_dict[item["recipeName"].lower()] = item["id"]
+    return item_dict
+
+
+# prints food item and ingredients
+def select_item(item_dict):
+    print "\nResults:"
+    if len(item_dict.keys()) != 0:
+        for name in item_dict.keys():
+            print name
+        choice = raw_input("\nWhich one do you like?\n--->")
+        
+        if choice not in item_dict.keys():
+            print "Type it again"
+            select_item(item_dict)
+        else:
+            # uses the yummly GET Recipe api
+            d = {}
+            d["_app_id"] = id
+            d["_app_key"] = key
+            url = base + "recipe/" + item_dict[choice] + "?" + urllib.urlencode(d)
+            try:
+                request = urllib2.urlopen(url).read()
+                return json.loads(request)
+            except urllib2.URLError:
+                print "Bad request!"
+                return None        
+
+
+def get_data(food_data):  
+    # have two if statements because the data structure is not consistent
+    if food_data['nutritionEstimates'] != None:
+        if len(food_data['nutritionEstimates']) != 0:
+            nutrition_data = {}
+            for element in food_data['nutritionEstimates']:
+                nutrition_data[element['attribute']] = element['value']
+            return nutrition_data
+        else:
+            print "No nutrition data is recorded for this food."
+            return None
+    else:
+        print "No nutrition data is recorded for this food."
+        return None
+
+
+def process_data(nutrition_data):
+    data ={}
+    data['Total Fat'] = nutrition_data['FAT']
+    data['Protein'] = nutrition_data['PROCNT']
+    data['Total Carbohydrate'] = nutrition_data['CHOCDF']
+    data['Cholesterol'] = nutrition_data['CHOLE']
+    data['Sodium'] = nutrition_data['NA']
+    data['Potassium'] = nutrition_data['K']
+    return data
+   
+
+# reads a food item from user
+input = get_input()
+# sends a request to server
+data = send_request(input)
+# if request is valid
+if data != None:
+    # stores data into a dictionary
+    item_dict = retrieve_data(data)    
+    # gets food data back from server
+    food_data = select_item(item_dict)
+    # gets nutrition facts of the food 
+    nutrition_data = get_data(food_data)
+    if nutrition_data != None:
+        calories = '[\'Calories\',' + str(nutrition_data['ENERC_KCAL']) + ']'
+        data = process_data(nutrition_data)
+        
+        # html framwork
+        html_str = """
+            <html>
+              <head>
+                <script type="text/javascript" src="https://www.google.com/jsapi"></script>
+                <script type="text/javascript">
+                  google.load("visualization", "1", {packages:["corechart"]});
+                  google.load('visualization', '1', {packages:['gauge']});
+                  google.setOnLoadCallback(drawChart1);
+                  google.setOnLoadCallback(drawChart2);
+                  function drawChart1() {
+            """
+        # converts dict into string
+        dataSet = []
+        for key,value in data.iteritems():
+            dataSet.append('[\'' + key + '\',' + str(value) + ']')
+        stringList = '' + str(dataSet[0])
+        for i in dataSet[1:]:
+            stringList += ',' + str(i)
+        
+        html_str += 'var data = google.visualization.arrayToDataTable([[\'Element\', \'Quantity (gram)\'],' + str(stringList)    
+        html_str +=  """]);
+                    var options = {
+    
+                      title: 'Nutrition Facts (Amount Per Serving)',
+                      vAxis: {title: 'Category'},
+                      backgroundColor: '#54C571',
+                      titleTextStyle: {fontName:'Georgia',color:'#990012'}
+                    };
+                    var chart = new google.visualization.BarChart(document.getElementById('chart_div1'));
+                    chart.draw(data, options);
+                  }"""
+        
+        html_str += 'function drawChart2() {var data = google.visualization.arrayToDataTable([[\'Label\', \'Value\'],' + calories   
+        html_str += """
+                     ]);
+            var options = {
+              max: 1000,
+              width: 576, height: 172,
+              redFrom: 900, redTo: 1000,
+              yellowFrom:750, yellowTo: 900,
+              minorTicks: 5
+            };
+            var chart = new google.visualization.Gauge(document.getElementById('chart_div2'));
+            chart.draw(data, options);
+          }
+                </script>
+              </head>
+              <body style="background-color:#54C571;">
+              
+                
+                <h1 align="center" style="color:#990012;font-family:Georgia">
+            """
+        html_str += food_data['name']
+        html_str += """  
+                </h1>
+                <div id="chart_div2" align="center" style="width: auto; height: 170px;"></div>
+                <div id="chart_div1" align="center" style="width: auto; height: 360;"></div>
+                <p align="center">Powered by Yummly.com & Google Charts</p>
+              </body>
+            </html>
+            """
+        with open("main.html", 'w') as mf:
+            #print html_str
+            mf.write(html_str)
+        webbrowser.open_new('main.html') 
